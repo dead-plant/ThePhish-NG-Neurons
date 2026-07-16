@@ -1,0 +1,342 @@
+# Based on the build workflow from TheHive-Project/Cortex-Analyzers
+# https://github.com/TheHive-Project/Cortex-Analyzers/blob/develop/.github/workflows/build.yml
+# Original work Copyright (C) TheHive Project — licensed under AGPL-3.0
+# Modified by dead-plant, 2026-07-16:
+#   restructured into a reusable workflow, single analyzer/responder matrices,
+#   Discord notifications, failure-gated catalog/release, hard-failing import tests
+# This file remains licensed under AGPL-3.0.
+
+name: build
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - "*"
+  workflow_dispatch:
+  schedule:
+    # Monthly forced rebuild (picks up base-image & security updates):
+    # first day of the month at 08:42 UTC
+    - cron: "42 8 1 * *"
+
+# Least privilege by default; individual jobs elevate only what they need.
+permissions:
+  contents: read
+
+jobs:
+  generate-matrix:
+    name: Generate Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      analyzers_matrix: ${{ steps.set-matrix.outputs.analyzers_matrix }}
+      analyzers_count: ${{ steps.set-matrix.outputs.analyzers_count }}
+      responders_matrix: ${{ steps.set-matrix.outputs.responders_matrix }}
+      responders_count: ${{ steps.set-matrix.outputs.responders_count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: List analyzer and responder JSON files and build matrices
+        id: set-matrix
+        run: |
+          # Optional targeted builds: set a flag to "true" and list the
+          # directories you want (regex alternation, e.g. "MyAnalyzer|Other").
+          filter_analyzers="false"
+          filter_responders="false"
+          allowed_analyzers=""
+          allowed_responders=""
+
+          # If filtering is disabled, use a regex that matches everything.
+          if [ "$filter_analyzers" != "true" ]; then
+            allowed_analyzers=".*"
+          fi
+          if [ "$filter_responders" != "true" ]; then
+            allowed_responders=".*"
+          fi
+
+          build_matrix() {
+            local dir=$1 allowed=$2
+            if [ ! -d "$dir" ]; then
+              echo '{"include":[]}'
+              return 0
+            fi
+            find "$dir" -maxdepth 2 -type f -name '*.json' -printf '%P\n' \
+              | { grep -E "^($allowed)/[^/]+\.json$" || true; } \
+              | jq -R -s -c 'split("\n")[:-1] | map({directory: (split("/")[0]), path: .}) | {include: .}'
+          }
+
+          analyzers_matrix=$(build_matrix analyzers "$allowed_analyzers")
+          responders_matrix=$(build_matrix responders "$allowed_responders")
+
+          echo "Generated analyzers matrix: $analyzers_matrix"
+          echo "Generated responders matrix: $responders_matrix"
+
+          {
+            echo "analyzers_matrix=$analyzers_matrix"
+            echo "analyzers_count=$(jq '.include | length' <<<"$analyzers_matrix")"
+            echo "responders_matrix=$responders_matrix"
+            echo "responders_count=$(jq '.include | length' <<<"$responders_matrix")"
+          } >> "$GITHUB_OUTPUT"
+
+  build_analyzers:
+    name: Build Analyzers
+    needs: generate-matrix
+    if: needs.generate-matrix.outputs.analyzers_count != '0'
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    uses: ./.github/workflows/build-neuron.yml
+    with:
+      worker_type: analyzers
+      matrix: ${{ needs.generate-matrix.outputs.analyzers_matrix }}
+
+  build_responders:
+    name: Build Responders
+    needs: generate-matrix
+    if: needs.generate-matrix.outputs.responders_count != '0'
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    uses: ./.github/workflows/build-neuron.yml
+    with:
+      worker_type: responders
+      matrix: ${{ needs.generate-matrix.outputs.responders_matrix }}
+
+  build_catalog:
+    name: Build Catalog
+    needs: [generate-matrix, build_analyzers, build_responders]
+    # Run when no build failed. 'skipped' (empty matrix) is fine;
+    # 'failure' blocks the catalog and therefore the release.
+    if: >-
+      ${{ !cancelled() &&
+          needs.generate-matrix.result == 'success' &&
+          needs.build_analyzers.result != 'failure' &&
+          needs.build_responders.result != 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build catalog JSON files
+        run: |
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+
+          build_catalog() {
+            local DIR=$1
+            if ! compgen -G "${DIR}/*/*.json" > /dev/null; then
+              echo "No flavor JSONs under ${DIR}/ — skipping its catalogs."
+              return 0
+            fi
+
+            jq -s --arg owner "$owner_lc" \
+              '[.[] | del(.command) + { dockerImage: ("ghcr.io/" + $owner + "/" + (.name | ascii_downcase) + ":devel") }]' \
+              "${DIR}"/*/*.json > "${DIR}/${DIR}-devel.json"
+
+            jq -s --arg owner "$owner_lc" \
+              '[.[] | del(.command) + { dockerImage: ("ghcr.io/" + $owner + "/" + (.name | ascii_downcase) + ":" + .version) }]' \
+              "${DIR}"/*/*.json > "${DIR}/${DIR}-stable.json"
+
+            jq -s --arg owner "$owner_lc" \
+              '[.[] | del(.command) + { dockerImage: ("ghcr.io/" + $owner + "/" + (.name | ascii_downcase) + ":" + (.version | split("."))[0]) }]' \
+              "${DIR}"/*/*.json > "${DIR}/${DIR}.json"
+          }
+
+          build_catalog analyzers
+          build_catalog responders
+
+      - name: Zip report-templates
+        run: |
+          if [ -d thehive-templates ]; then
+            mkdir -p analyzers
+            (cd thehive-templates && zip -r ../analyzers/report-templates.zip .)
+          else
+            echo "No thehive-templates directory — skipping."
+          fi
+
+      - name: Save Artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: catalog
+          path: |
+            analyzers/analyzers.json
+            analyzers/analyzers-devel.json
+            analyzers/analyzers-stable.json
+            analyzers/report-templates.zip
+            responders/responders.json
+            responders/responders-devel.json
+            responders/responders-stable.json
+
+      - name: Make Release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true
+          files: |
+            analyzers/analyzers-stable.json
+            analyzers/analyzers.json
+            analyzers/report-templates.zip
+            responders/responders-stable.json
+            responders/responders.json
+
+  publish_pages:
+    name: Publish catalog to Pages
+    needs: build_catalog
+    # Publishes only from push events, and only when the catalog was built —
+    # which itself requires that no build failed:
+    #   push of a tag        -> updates the stable catalogs
+    #   push to develop      -> updates the devel catalogs
+    # Scheduled/manual runs never touch Pages.
+    if: github.event_name == 'push' && needs.build_catalog.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Serialize publishes so concurrent runs can't race on the gh-pages branch.
+    concurrency:
+      group: gh-pages-publish
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download catalog artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: catalog
+          path: ${{ runner.temp }}/catalog
+
+      - name: Publish catalog to gh-pages branch
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/catalog
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            files="analyzers/analyzers.json analyzers/analyzers-stable.json responders/responders.json responders/responders-stable.json"
+            what="stable"
+          elif [[ "$GITHUB_REF" == "refs/heads/develop" ]]; then
+            files="analyzers/analyzers-devel.json responders/responders-devel.json"
+            what="devel"
+          else
+            echo "Ref $GITHUB_REF does not publish to Pages — skipping."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          # Switch to gh-pages; create it as an orphan branch on first run
+          if git fetch origin gh-pages:gh-pages 2>/dev/null; then
+            git switch -q gh-pages
+          else
+            echo "gh-pages branch does not exist yet — creating it."
+            git switch -q --orphan gh-pages
+          fi
+
+          touch .nojekyll
+          for f in $files; do
+            if [ -f "$ARTIFACT_DIR/$f" ]; then
+              cp "$ARTIFACT_DIR/$f" "./$(basename "$f")"
+            else
+              echo "Note: $f not in catalog artifact — skipping."
+            fi
+          done
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Catalog unchanged — nothing to publish."
+            exit 0
+          fi
+          git commit -q -m "Publish $what catalog (${GITHUB_SHA:0:7})"
+          git push -q origin gh-pages
+          echo "Published $what catalog."
+
+  notify:
+    name: Notify
+    needs: [generate-matrix, build_analyzers, build_responders, build_catalog, publish_pages]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Determine overall status
+        id: status
+        run: |
+          results=(
+            "${{ needs.generate-matrix.result }}"
+            "${{ needs.build_analyzers.result }}"
+            "${{ needs.build_responders.result }}"
+            "${{ needs.build_catalog.result }}"
+            "${{ needs.publish_pages.result }}"
+          )
+          overall="success"
+          for r in "${results[@]}"; do
+            case "$r" in
+              failure)   overall="failure"; break ;;
+              cancelled) [[ "$overall" != "failure" ]] && overall="cancelled" ;;
+            esac
+          done
+          echo "overall=$overall" >> "$GITHUB_OUTPUT"
+          case "$overall" in
+            success)   echo "color=3066993"  >> "$GITHUB_OUTPUT" ;;  # green
+            failure)   echo "color=15158332" >> "$GITHUB_OUTPUT" ;;  # red
+            cancelled) echo "color=16776960" >> "$GITHUB_OUTPUT" ;;  # yellow
+            *)         echo "color=9807270"  >> "$GITHUB_OUTPUT" ;;  # grey
+          esac
+
+      - name: Discord notification
+        # Notify on every failure, and on tag pushes also on success
+        # (release confirmation). Tune to taste.
+        if: steps.status.outputs.overall != 'success' || startsWith(github.ref, 'refs/tags/')
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          OVERALL: ${{ steps.status.outputs.overall }}
+          COLOR: ${{ steps.status.outputs.color }}
+          # Passed via env (never interpolated into the script) so a crafted
+          # commit message cannot inject shell code.
+          RAW_MSG: ${{ github.event.head_commit.message }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RES_ANALYZERS: ${{ needs.build_analyzers.result }}
+          RES_RESPONDERS: ${{ needs.build_responders.result }}
+          RES_CATALOG: ${{ needs.build_catalog.result }}
+          RES_PAGES: ${{ needs.publish_pages.result }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::warning::DISCORD_WEBHOOK_URL secret is not set — skipping notification."
+            exit 0
+          fi
+
+          commit_msg=$(printf '%s' "$RAW_MSG" | head -n1 | cut -c1-100)
+
+          # jq builds the payload and escapes every value safely.
+          payload=$(jq -n \
+            --arg title "${GITHUB_WORKFLOW} — ${OVERALL}" \
+            --arg url "$RUN_URL" \
+            --argjson color "$COLOR" \
+            --arg desc "Ref: \`${REF_NAME}\`
+          Commit: ${commit_msg}" \
+            --arg a "$RES_ANALYZERS" \
+            --arg r "$RES_RESPONDERS" \
+            --arg c "$RES_CATALOG" \
+            --arg p "$RES_PAGES" \
+            '{
+              embeds: [{
+                title: $title,
+                url: $url,
+                color: $color,
+                description: $desc,
+                fields: [
+                  {name: "Analyzers",  value: $a, inline: true},
+                  {name: "Responders", value: $r, inline: true},
+                  {name: "Catalog",    value: $c, inline: true},
+                  {name: "Pages",      value: $p, inline: true}
+                ]
+              }]
+            }')
+
+          curl -sS --fail-with-body \
+            -H 'Content-Type: application/json' \
+            -d "$payload" \
+            "$DISCORD_WEBHOOK_URL"

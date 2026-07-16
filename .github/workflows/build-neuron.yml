@@ -1,0 +1,357 @@
+# Based on the build workflow from TheHive-Project/Cortex-Analyzers
+# https://github.com/TheHive-Project/Cortex-Analyzers/blob/develop/.github/workflows/build.yml
+# Original work Copyright (C) TheHive Project — licensed under AGPL-3.0
+# Modified by dead-plant, 2026-07-16:
+#   restructured into a reusable workflow, single analyzer/responder matrices,
+#   Discord notifications, failure-gated catalog/release, hard-failing import tests
+# This file remains licensed under AGPL-3.0.
+
+# Reusable workflow: builds, scans and tests one neuron type (analyzers or responders).
+# Called by build.yml — do not trigger directly.
+name: build-neuron
+
+on:
+  workflow_call:
+    inputs:
+      worker_type:
+        description: "Which flavor tree to build: 'analyzers' or 'responders'"
+        required: true
+        type: string
+      matrix:
+        description: "Matrix JSON produced by the generate-matrix job"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      # Keep building all other neurons when one fails; the failed entries
+      # make this job report 'failure', which blocks catalog + release.
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJson(inputs.matrix) }}
+    env:
+      WORKER_TYPE: ${{ inputs.worker_type }}
+      WORKER_DIR: ${{ matrix.directory }}
+      WORKER_JSON: ${{ matrix.path }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history is required for the incremental-rebuild git diff below.
+          fetch-depth: 0
+
+      - name: GHCR Login
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image metadata from flavor JSON
+        run: |
+          json_file="${WORKER_TYPE}/${WORKER_JSON}"
+          if [ ! -f "$json_file" ]; then
+            echo "::error::Flavor definition not found: $json_file"
+            exit 1
+          fi
+
+          name=$(jq -r '.name | ascii_downcase' "$json_file")
+          version=$(jq -r '.version // empty' "$json_file")
+          # Strip newlines: this ends up in single-line OCI labels.
+          description=$(jq -r '.description // empty' "$json_file" | tr '\n' ' ')
+          command=$(jq -r '.command // empty' "$json_file")
+          requirements=$(jq -r '.requirements // "requirements.txt"' "$json_file")
+
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner_lc}/${name}"
+          version_major="${version%%.*}"
+
+          {
+            echo "LOWERCASE_NAME=${name}"
+            echo "IMAGE=${image}"
+            echo "VERSION=${version}"
+            echo "VERSION_MAJOR=${version_major}"
+            echo "DESCRIPTION=${description}"
+            echo "COMMAND=${command}"
+            echo "REQUIREMENTS=${requirements}"
+            echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_ENV"
+
+          # Tag strategy:
+          #   tag pushes & scheduled runs -> two tags: :<version> (e.g. 2.0) and :<major> (e.g. 2)
+          #   everything else (develop)   -> :devel only
+          if [[ "$GITHUB_REF" == refs/tags/* || "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            {
+              echo "IMAGE_TAG=${version_major}"
+              echo "IMAGE_TAGS=${image}:${version},${image}:${version_major}"
+              echo "CHECK_IMAGE=${image}:${version}"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "IMAGE_TAG=devel"
+              echo "IMAGE_TAGS=${image}:devel"
+              echo "CHECK_IMAGE=${image}:devel"
+            } >> "$GITHUB_ENV"
+          fi
+
+          # Workers that must be built for linux/amd64 only (space-separated
+          # directory names). Empty by default — add names here if a neuron
+          # has dependencies that do not build on arm64.
+          NO_ARM64_DIRS=""
+
+          PLATFORMS="linux/amd64,linux/arm64"
+          if [ -n "$NO_ARM64_DIRS" ] && echo "$NO_ARM64_DIRS" | grep -qw "$WORKER_DIR"; then
+            echo "'$WORKER_DIR' is in NO_ARM64_DIRS; limiting to linux/amd64 only."
+            PLATFORMS="linux/amd64"
+          fi
+          echo "PLATFORMS=${PLATFORMS}" >> "$GITHUB_ENV"
+
+      - name: Create Dockerfile if not present
+        run: |
+          dockerfile="${WORKER_TYPE}/${WORKER_DIR}/Dockerfile"
+
+          # Workers that need libmagic system packages baked into the
+          # generated Dockerfile (space-separated directory names).
+          # Empty by default — add names here if an import test fails on
+          # a missing shared library.
+          LIBMAGIC_WORKERS=""
+
+          if [ -f "$dockerfile" ]; then
+            echo "Dockerfile exists: $dockerfile"
+            exit 0
+          fi
+          echo "Dockerfile not found in $dockerfile. Creating one..."
+
+          builder_extra=""
+          runtime_extra=""
+          if [ -n "$LIBMAGIC_WORKERS" ] && echo "$LIBMAGIC_WORKERS" | grep -qw "$WORKER_DIR"; then
+            builder_extra="RUN apt-get update && apt-get install -y --no-install-recommends libmagic-dev build-essential && rm -rf /var/lib/apt/lists/*"
+            runtime_extra="RUN apt-get update && apt-get install -y --no-install-recommends libmagic1 && rm -rf /var/lib/apt/lists/*"
+          fi
+
+          cat > "$dockerfile" <<EOF
+          # Builder stage
+          FROM python:3-slim AS builder
+          WORKDIR /build
+          ${builder_extra}
+          COPY requirements.txt .
+          RUN test ! -e requirements.txt || pip install --user --no-cache-dir -r requirements.txt
+
+          # Runtime stage
+          FROM python:3-slim
+          ${runtime_extra}
+          WORKDIR /worker
+          COPY --from=builder /root/.local /root/.local
+          COPY . ${WORKER_DIR}/
+          ENV PATH=/root/.local/bin:\$PATH
+          ENTRYPOINT ["python", "${COMMAND}"]
+          EOF
+
+          echo "Generated Dockerfile:"
+          cat "$dockerfile"
+
+      - name: Check if image needs rebuild
+        id: check-rebuild
+        env:
+          IMAGE_NAME: ${{ env.CHECK_IMAGE }}
+          CURRENT_SHA: ${{ github.sha }}
+          COMPONENT_DIR: ${{ inputs.worker_type }}/${{ matrix.directory }}
+        run: |
+          # Force rebuild on scheduled runs (cron) and manual triggers
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Scheduled run or manual trigger detected - forcing rebuild"
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Try to pull the image to check if it exists
+          if docker pull --platform linux/amd64 "$IMAGE_NAME" >/dev/null 2>&1; then
+            # Image exists; read the git SHA it was built from
+            EXISTING_SHA=$(docker inspect "$IMAGE_NAME" --format='{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || echo "")
+
+            if [[ "$EXISTING_SHA" == "$CURRENT_SHA" ]]; then
+              echo "Image is up to date with current commit. No rebuild needed."
+              echo "rebuild=false" >> "$GITHUB_OUTPUT"
+            elif [[ -n "$EXISTING_SHA" ]] && git rev-parse --verify "$EXISTING_SHA" >/dev/null 2>&1; then
+              # Rebuild only if this component's directory changed since then
+              if git diff --quiet "$EXISTING_SHA" "$CURRENT_SHA" -- "$COMPONENT_DIR"; then
+                echo "No changes in $COMPONENT_DIR since last build. No rebuild needed."
+                echo "rebuild=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "Changes detected in $COMPONENT_DIR. Rebuild needed."
+                echo "rebuild=true" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              echo "Cannot verify existing SHA. Rebuild needed."
+              echo "rebuild=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Image not found or inaccessible. Rebuild needed."
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only install QEMU when we actually build AND arm64 is targeted
+      - name: Set up QEMU
+        if: steps.check-rebuild.outputs.rebuild == 'true' && contains(env.PLATFORMS, 'linux/arm64')
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        if: steps.check-rebuild.outputs.rebuild == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build and push multi-arch image to GHCR
+        if: steps.check-rebuild.outputs.rebuild == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ inputs.worker_type }}/${{ matrix.directory }}
+          file: ./${{ inputs.worker_type }}/${{ matrix.directory }}/Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ env.IMAGE_TAGS }}
+          build-args: REQUIREMENTS=${{ env.REQUIREMENTS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,scope=shared
+          labels: |
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.title=${{ env.LOWERCASE_NAME }}
+            org.opencontainers.image.description=${{ env.DESCRIPTION }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          annotations: |
+            org.opencontainers.image.description=${{ env.DESCRIPTION }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=${{ env.LOWERCASE_NAME }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+
+      - name: Get image digest for Trivy scan
+        if: steps.check-rebuild.outputs.rebuild == 'true'
+        id: get-digest
+        run: |
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${IMAGE_TAG}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          if [ -n "$DIGEST" ]; then
+            IMAGE_REF="${IMAGE}@${DIGEST}"
+          else
+            # Fallback: scan by tag
+            IMAGE_REF="${IMAGE}:${IMAGE_TAG}"
+          fi
+          echo "IMAGE_DIGEST=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+          echo "Using image reference for Trivy scan: $IMAGE_REF"
+
+      - name: Scan image for vulnerabilities (Trivy)
+        if: steps.check-rebuild.outputs.rebuild == 'true'
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: ${{ steps.get-digest.outputs.IMAGE_DIGEST }}
+          format: sarif
+          output: trivy.sarif
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: 0
+          ignore-unfixed: true
+          timeout: 10m
+          skip-files: '**/*.yara,**/*.cvd'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: steps.check-rebuild.outputs.rebuild == 'true'
+        uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4.34.1
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-${{ inputs.worker_type }}-${{ matrix.directory }}
+
+      - name: Test imports in the built image
+        if: steps.check-rebuild.outputs.rebuild == 'true'
+        env:
+          IMAGE_REF: ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+          ENTRYPOINT_CMD: ${{ env.COMMAND }}
+        run: |
+          # The check script runs INSIDE the container. It reads the worker's
+          # entrypoint file, extracts every top-level import via AST, and
+          # tries to import each one — catching missing dependencies without
+          # executing the neuron. Config is passed via env vars (-e), so no
+          # values are ever interpolated into code.
+          cat > "$RUNNER_TEMP/import_check.py" <<'PYEOF'
+          import ast
+          import os
+          import os.path as osp
+          import sys
+
+          cmd = os.environ.get("ENTRYPOINT_CMD", "")
+          fallback_dir = os.environ.get("WORKER_DIR", "")
+
+          if not cmd:
+              print("No 'command' defined in flavor JSON; skipping import test.")
+              sys.exit(0)
+
+          if "/" in cmd:
+              dir_part = osp.dirname(cmd)
+              file_part = osp.basename(cmd)
+              # If directory doesn't exist but fallback_dir does, change to fallback.
+              if not osp.isdir(dir_part) and osp.isdir(fallback_dir):
+                  dir_part = fallback_dir
+              os.chdir(osp.join(os.getcwd(), dir_part))
+              entrypoint = file_part
+          else:
+              entrypoint = cmd
+
+          if not osp.exists(entrypoint):
+              print(f"ERROR: {entrypoint} not found inside the container.")
+              sys.exit(1)
+
+          with open(entrypoint, encoding="utf-8") as f:
+              source = f.read()
+
+          try:
+              tree = ast.parse(source)
+          except SyntaxError as e:
+              print(f"Syntax error in {entrypoint}: {e}")
+              sys.exit(1)
+
+          imports = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  imports.update(alias.name for alias in node.names)
+              elif isinstance(node, ast.ImportFrom) and node.module:
+                  imports.add(node.module)
+
+          print(f"Checking imports from {entrypoint}: {sorted(imports)}")
+          failed = False
+          for mod in sorted(imports):
+              try:
+                  __import__(mod)
+                  print(f"OK   {mod}")
+              except Exception as e:
+                  print(f"FAIL {mod} - {e}")
+                  failed = True
+
+          sys.exit(1 if failed else 0)
+          PYEOF
+
+          status=0
+          for platform in ${PLATFORMS//,/ }; do
+            echo "::group::Import test ($platform)"
+            docker pull --platform "$platform" "$IMAGE_REF" >/dev/null
+            if docker run --rm --platform "$platform" \
+                 -e ENTRYPOINT_CMD -e WORKER_DIR \
+                 -v "$RUNNER_TEMP/import_check.py:/tmp/import_check.py:ro" \
+                 --entrypoint python "$IMAGE_REF" /tmp/import_check.py; then
+              echo "Import test passed ($platform)"
+            else
+              echo "::error title=Import test failed::${WORKER_TYPE}/${WORKER_DIR} ($platform)"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status

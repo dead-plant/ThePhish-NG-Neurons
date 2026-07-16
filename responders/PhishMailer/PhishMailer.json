@@ -1,0 +1,65 @@
+{
+  "name": "PhishMailer",
+  "version": "1.0",
+  "author": "dead-plant",
+  "url": "https://github.com/dead-plant/ThePhish-NG-Neurons",
+  "license": "AGPL-V3",
+  "description": "Send an email containing the description of a TheHive case or case_task.",
+  "dataTypeList": ["thehive:case", "thehive:case_task"],
+  "command": "PhishMailer/phishmailer.py",
+  "baseConfig": "PhishMailer",
+  "configurationItems": [
+    {
+      "name": "from_addr",
+      "description": "Address from which the mails are sent",
+      "type": "string",
+      "multi": false,
+      "required": true
+    },
+    {
+      "name": "smtp_host",
+      "description": "SMTP server address",
+      "type": "string",
+      "multi": false,
+      "required": true
+    },
+    {
+      "name": "smtp_port",
+      "description": "SMTP server port",
+      "type": "number",
+      "multi": false,
+      "required": true,
+      "defaultValue": 465
+    },
+    {
+      "name": "smtp_encryption",
+      "description": "TLS Mode. Must be one of these: none, starttls, tls",
+      "type": "string",
+      "multi": false,
+      "required": true,
+      "defaultValue": "tls"
+    },
+    {
+      "name": "smtp_verify",
+      "description": "Verify TLS certificates",
+      "type": "boolean",
+      "multi": false,
+      "required": true,
+      "defaultValue": true
+    },
+    {
+      "name": "smtp_user",
+      "description": "SMTP server user",
+      "type": "string",
+      "multi": false,
+      "required": false
+    },
+    {
+      "name": "smtp_password",
+      "description": "SMTP server password",
+      "type": "string",
+      "multi": false,
+      "required": false
+    }
+  ]
+}

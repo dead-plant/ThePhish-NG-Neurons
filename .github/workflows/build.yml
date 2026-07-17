@@ -129,7 +129,11 @@ jobs:
           build_catalog() {
             local DIR=$1
             if ! compgen -G "${DIR}/*/*.json" > /dev/null; then
-              echo "No flavor JSONs under ${DIR}/ — skipping its catalogs."
+              echo "No flavor JSONs under ${DIR}/ — writing empty catalogs."
+              mkdir -p "${DIR}"
+              printf '[]\n' > "${DIR}/${DIR}-devel.json"
+              printf '[]\n' > "${DIR}/${DIR}-stable.json"
+              printf '[]\n' > "${DIR}/${DIR}.json"
               return 0
             fi
 

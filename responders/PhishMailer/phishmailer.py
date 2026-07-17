@@ -199,7 +199,7 @@ class PhishMailer(Responder):
         self.entity_id = self.get_param('data.caseId', None) or self.get_param('data.id', None)
         self.description_lines = self.get_param('data.description', None, "Can't get description").splitlines()
 
-        self.ca_bundle = self.get_param('config.cafile', None)
+        self.ca_bundle = self.get_param('config.cacerts', None)
 
         # config validation
         try:

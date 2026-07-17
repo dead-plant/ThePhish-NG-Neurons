@@ -131,7 +131,7 @@ def extract_recipients(description_lines: Sequence[str]):
             raise NoRecipientFoundError("No 'mailto:' recipient given.")
         return recipients, subject, index + 1
 
-    raise InvalidDirectiveError("Got empty description.")
+    raise InvalidDirectiveError(f"Marker: '{MARKER}' not found in description.")
 
 
 def send_email(

@@ -1,8 +1,7 @@
 ---
 name: Bug report
-about: Create a report to help ThePhish improve.
+about: Create a report to help ThePhish-NG-Neurons improve.
 title: "[BUG]"
-labels: bug
 assignees: ''
 
 ---
@@ -11,15 +10,15 @@ assignees: ''
 
 A clear and concise description of what the bug is.
 
-**Affected Analyzer**
+**Affected Neuron**
 
-| Question               | Answer               |
-|------------------------|----------------------|
-| Type                   | Analyzer / Responder |
-| Name                   | SMTP                 |
-| Flavor (If applicable) | SMTP_Sender          |
-| Version                | 1_0                  |
-| Docker                 | yes / no             |
+| Question               | Answer                  |
+|------------------------|-------------------------|
+| Type                   | Analyzer / Responder    |
+| Name                   | PhishMailer             |
+| Flavor (If applicable) | Name_Flavor (or empty)  |
+| Version                | 1.0                     |
+| Docker                 | yes / no                |
 
 
 **Work environment**
@@ -27,7 +26,7 @@ A clear and concise description of what the bug is.
 | Question                   | Answer                                       |
 |----------------------------|----------------------------------------------|
 | OS version                 | Debian 13, Ubuntu 22.04, CentOS, RedHat, ... |
-| OS-Virtualizazion          | No, KVM, Proxmox-lxc, ...                    |
+| OS virtualization          | No, KVM, Proxmox-lxc, ...                    |
 | Dedicated RAM              | XX GB                                        |
 | vCPU                       | 2 / 4 / 8 / 16                               |
 | E-Mail provider            | Gmail, Hotmail, Private Server, ...          |

@@ -1,4 +1,4 @@
-# Code of Conduct - Custom-Cortex-Analyzers
+# Code of Conduct - ThePhish-NG-Neurons
 
 ## Our Pledge
 

@@ -3,7 +3,7 @@
 A collection of custom Cortex Neurons developed for [ThePhish-NG](https://github.com/dead-plant/ThePhish-NG).
 
 [![OS](https://img.shields.io/badge/OS-Linux-red?style=flat&logo=linux)](#)
-[![made-with-python](https://img.shields.io/badge/Made%20with-Python%203.12-1f425f.svg?logo=python)](https://www.python.org/)
+[![made-with-python](https://img.shields.io/badge/Made%20with-Python%203-1f425f.svg?logo=python)](https://www.python.org/)
 [![Maintenance](https://img.shields.io/badge/Maintained-yes-green.svg)](#)
 
 ## Table of Contents

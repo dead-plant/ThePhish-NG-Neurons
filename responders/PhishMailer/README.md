@@ -44,7 +44,7 @@ For a case_task, `Case` is replaced with `Task`. Custom subjects are limited to 
 | `from_addr`       | Yes      | -       | Valid sender email address used in the `From` header.                                                      |
 | `smtp_host`       | Yes      | -       | Hostname or IP address of the SMTP server.                                                                 |
 | `smtp_port`       | Yes      | `465`   | Port used to connect to the SMTP server.                                                                   |
-| `smtp_encryption` | Yes      | `tls`   | Connection mode: `tls` for implicit TLS, `starttls` for starttls, or `none` for an unencrypted connection. |
+| `smtp_encryption` | Yes      | `tls`   | Connection mode: `tls` for implicit TLS, `starttls` for STARTTLS, or `none` for an unencrypted connection. |
 | `smtp_verify`     | Yes      | `true`  | Whether to verify the SMTP server's TLS certificate.                                                       |
 | `smtp_user`       | No       | -       | SMTP authentication username. Must be provided together with `smtp_password`.                              |
 | `smtp_password`   | No       | -       | SMTP authentication password. Must be provided together with `smtp_user`.                                  |

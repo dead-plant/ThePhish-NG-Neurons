@@ -8,6 +8,7 @@ This guide explains how to set up the analyzers and responders in this repositor
 - [Build your own](#build-your-own)
   - [Clone the Git repository](#clone-the-git-repository)
   - [Build the container images and catalog](#build-the-container-images-and-catalog)
+  - [Mount the local catalogs into Cortex](#mount-the-local-catalogs-into-cortex)
   - [Add the catalog to Cortex](#add-the-catalog-to-cortex)
 - [Deploy using the pre-built catalog](#deploy-using-the-pre-built-catalog)
   - [Locate `application.conf`](#locate-applicationconf)
@@ -23,13 +24,13 @@ This guide explains how to set up the analyzers and responders in this repositor
 - A working [Docker installation](https://docs.docker.com/engine/install/)
 - A working Cortex installation, either [installed natively](https://docs.strangebee.com/cortex/installation-and-configuration/) or deployed using [Docker Compose](https://github.com/StrangeBeeCorp/docker/tree/main/prod1-cortex)
 - Basic knowledge of Linux, Docker, and Cortex
-- Local build: `sudo`, `git`, `bash`, and `jq` packages installed
+- Local builds require the sudo, git, bash, and jq commands.
 
 ## Build your own
 
 Instead of using the pre-built version, you can optionally build the Docker images yourself and configure Cortex with a local catalog.
 
-**Note:** If you build the images yourself, you have to update them manually. If you want to update, you should take a look at [Update outdated images](#update-outdated-images)
+**Note:** Locally built images must be rebuilt manually. See [Update outdated images](#update-outdated-images)
 
 ### Clone the Git repository
 
@@ -51,6 +52,32 @@ bash ./utils/build.sh
 ```
 
 The script should automatically create the Docker images and the catalog files at `./analyzers/analyzers.json` and `./responders/responders.json`.
+
+### Mount the local catalogs into Cortex
+
+If Cortex is deployed using Docker Compose, you have to mount the local catalogs into the Cortex container. Add the following volumes to the `cortex` service in your Compose file. Make sure not to change or remove the existing volumes:
+
+```yaml
+services:
+  cortex:
+    volumes:
+      - [other volumes....]
+      - /opt/thephish-ng-neurons/analyzers/analyzers.json:/opt/thephish-ng-neurons/analyzers/analyzers.json:ro
+      - /opt/thephish-ng-neurons/responders/responders.json:/opt/thephish-ng-neurons/responders/responders.json:ro
+```
+
+If you cloned the repository somewhere else, replace the path before the first colon with that host path. The second path is the location that Cortex can access; use it when configuring the catalog URLs:
+
+```text
+/opt/thephish-ng-neurons/analyzers/analyzers.json
+/opt/thephish-ng-neurons/responders/responders.json
+```
+
+Recreate the Cortex service after changing the volume configuration:
+
+```bash
+docker compose up -d --force-recreate cortex
+```
 
 ### Add the catalog to Cortex
 
@@ -178,7 +205,7 @@ The added Neurons should now appear in the Cortex interface. Enable and configur
 
 ## Update outdated images
 
-First you have to `cd` into the git repository. If you used the default path from [Clone the Git repository](#clone-the-git-repository) this command should work:
+First you have to `cd` into the Git repository. If you used the default path from [Clone the Git repository](#clone-the-git-repository) this command should work:
 
 ```bash
 cd /opt/thephish-ng-neurons

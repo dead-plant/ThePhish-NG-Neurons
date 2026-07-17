@@ -1,49 +1,162 @@
-# Installation guide
+# Installation Guide
 
-This guide will help you set up the analyzers and responders in this repository.
+This guide explains how to set up the analyzers and responders in this repository.
 
 ## Table of Contents
 
 - [Requirements](#requirements)
 - [Build your own](#build-your-own)
-  - [Notes](#notes)
-  - [Download Release](#download-release)
-  - [Build Docker Image](#build-docker-image)
-  - [Configure Cortex](#configure-cortex)
-- [Deploy using my hosted index file](#deploy-using-remote-index-file)
-  - [Add index to Cortex](#add-index-to-cortex)
+  - [Create a local Docker registry](#create-a-local-docker-registry)
+  - [Build the container images and catalog](#build-the-container-images-and-catalog)
+  - [Add the catalog to Cortex](#add-the-catalog-to-cortex)
+- [Deploy using the pre-built catalog](#deploy-using-the-pre-built-catalog)
+  - [Locate `application.conf`](#locate-applicationconf)
+  - [Back up the configuration](#back-up-the-configuration)
+  - [Add the catalog](#add-the-catalog)
+  - [Catalog URLs](#catalog-urls)
+  - [Restart Cortex](#restart-cortex)
+  - [Enable and configure the Neurons](#enable-and-configure-the-neurons)
 
 ## Requirements
 
-- A working Docker installation: https://docs.docker.com/engine/install/
-- A working Cortex installation: https://docs.strangebee.com/cortex/installation-and-configuration/
+- A working [Docker installation](https://docs.docker.com/engine/install/)
+- A working Cortex installation, either [installed natively](https://docs.strangebee.com/cortex/installation-and-configuration/) or deployed using [Docker Compose](https://github.com/StrangeBeeCorp/docker/tree/main/prod1-cortex)
 - Basic knowledge of Linux, Docker and Cortex
 
 ## Build your own
 
-You can deploy these neurons by building container images from the Dockerfile, storing them in a local registry, and configuring Cortex to use a local index file.
+Instead of using the pre-built version, you can build your own Docker images, store them in a local registry and configure Cortex with a local catalog.
 
-### Notes
+**Note:** Neurons deployed this way must be updated manually. Repeat the steps below for each Neuron you want to update. If you kept the Git repository, run `git pull` instead of cloning it again.
 
-- If you deploy Neurons this way, you have to update them manually. You can do this by following this guide: [How to Update](how-to-update.md).
+### Create a local Docker registry
 
-### Download Release
+Documentation not finished yet...
 
-Coming soon...
+### Build the container images and catalog
 
-### Build Docker Image
+Documentation not finished yet...
 
-Coming soon...
+### Add the catalog to Cortex
 
-### Configure Cortex
+After building the local catalog, follow the [pre-built catalog deployment steps](#deploy-using-the-pre-built-catalog). Use the path to the local catalog file instead of a public catalog URL.
 
-Coming soon...
+## Deploy using the pre-built catalog
 
-## Deploy using remote index file
+Cortex can load the pre-built catalog directly from GitHub Pages and pull the corresponding Docker images from the GitHub Container Registry.
 
-You can easily deploy the Neurons by adding a reference to my pre-built index file in the Cortex application config.
-My index file and the pre-built container images are hosted using GitHub Pages (https://pages.github.com/) and the GitHub Container Registry (https://ghcr.io/).
+### Locate `application.conf`
 
-### Add index to Cortex
+For a native Cortex installation, the configuration file is normally located at:
 
-Coming soon...
+```text
+/etc/cortex/application.conf
+```
+
+For a Docker Compose deployment, the location on the host depends on the Cortex service's volume mapping. Find the volume whose destination inside the container is `/etc/cortex/application.conf`. For example:
+
+```yaml
+services:
+  cortex:
+    volumes:
+      - ./cortex/config/application.conf:/etc/cortex/application.conf
+```
+
+In this example, the configuration file is located at `cortex/config/application.conf`, relative to the Compose directory. The referenced StrangeBee Docker Compose deployment uses this layout, but other deployments may use a different host path.
+
+Set `APPLICATION_CONFIG` to the appropriate host path so the following commands can be copied directly. For a native installation:
+
+```bash
+APPLICATION_CONFIG=/etc/cortex/application.conf
+```
+
+For the example Docker Compose layout:
+
+```bash
+APPLICATION_CONFIG=/path/to/cortex-compose/cortex/config/application.conf
+```
+
+### Back up the configuration
+
+Create a backup before editing the Cortex configuration:
+
+```bash
+sudo cp -- "$APPLICATION_CONFIG" "${APPLICATION_CONFIG}.bak"
+```
+
+### Add the catalog
+
+Open the configuration file with your preferred editor. For example:
+
+```bash
+sudo nano "$APPLICATION_CONFIG"
+```
+
+Find the existing `analyzer` and `responder` sections and add the appropriate catalog URL to each `urls` list:
+
+```hocon
+analyzer {
+  urls = [
+    "https://catalogs.download.strangebee.com/latest/json/analyzers.json",
+    "https://dead-plant.github.io/ThePhish-NG-Neurons/analyzers.json"
+  ]
+
+  # Keep the remaining analyzer configuration unchanged.
+}
+
+responder {
+  urls = [
+    "https://catalogs.download.strangebee.com/latest/json/responders.json",
+    "https://dead-plant.github.io/ThePhish-NG-Neurons/responders.json"
+  ]
+
+  # Keep the remaining responder configuration unchanged.
+}
+```
+
+Add responder catalogs to the `responder` section and analyzer catalogs to the `analyzer` section. The example uses the pre-built catalog URLs.
+
+### Catalog URLs
+
+The pre-built catalogs are available at:
+
+```text
+# Analyzers
+https://dead-plant.github.io/ThePhish-NG-Neurons/analyzers.json
+
+# Responders
+https://dead-plant.github.io/ThePhish-NG-Neurons/responders.json
+```
+
+For a local catalog, use paths accessible to the Cortex process. For example:
+
+```text
+# Analyzers
+/opt/thephish-ng-neurons/analyzers/analyzers.json
+
+# Responders
+/opt/thephish-ng-neurons/responders/responders.json
+```
+
+When Cortex runs in Docker, local catalog files must be mounted into the Cortex container, and the paths in `application.conf` must use their locations inside the container.
+
+### Restart Cortex
+
+Restart Cortex to load the new catalog.
+
+For Docker Compose, run the following command from the Compose directory:
+
+```bash
+docker compose restart cortex
+```
+
+For a native installation:
+
+```bash
+sudo systemctl restart cortex
+sudo systemctl status cortex --no-pager
+```
+
+### Enable and configure the Neurons
+
+The added Neurons should now appear in the Cortex interface. Enable and configure the Neurons you want to use, referring to their individual documentation in the repository's [list of Neurons](../README.md#list-of-neurons).

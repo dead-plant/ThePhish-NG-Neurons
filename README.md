@@ -18,7 +18,6 @@ A collection of custom Cortex Neurons developed for [ThePhish-NG](https://github
 ## Additional Documentation
 
 - [Installation guide](docs/install.md)
-- [How to Update](docs/how-to-update.md)
 
 ## External References
 

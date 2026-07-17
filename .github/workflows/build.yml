@@ -191,7 +191,7 @@ jobs:
     #   push of a tag        -> updates the stable catalogs
     #   push to develop      -> updates the devel catalogs
     # Scheduled/manual runs never touch Pages.
-    if: github.event_name == 'push' && needs.build_catalog.result == 'success'
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.build_catalog.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

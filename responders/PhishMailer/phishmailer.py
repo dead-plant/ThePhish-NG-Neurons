@@ -162,7 +162,7 @@ def send_email(
 
     tls_context: Optional[ssl.SSLContext] = None
     if tls_mode in ("tls", "starttls"):
-        tls_context = ssl.create_default_context(cafile=ca_bundle)
+        tls_context = ssl.create_default_context(cadata=ca_bundle)
         if not tls_verify:
             tls_context.check_hostname = False  # must precede CERT_NONE
             tls_context.verify_mode = ssl.CERT_NONE

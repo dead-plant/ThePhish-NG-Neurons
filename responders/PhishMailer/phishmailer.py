@@ -195,7 +195,7 @@ class PhishMailer(Responder):
         if self.smtp_encryption not in TLS_MODES:
             self.error(f"Invalid smtp_encryption {self.smtp_encryption!r}; "
                        f"must be one of: {', '.join(TLS_MODES)}")
-        if (self.smtp_user is None) != (self.smtp_password is None):
+        if ((self.smtp_user is None) is not (self.smtp_password is None)) or (self.smtp_user.strip() is not self.smtp_password.strip()):
             self.error("smtp_user and smtp_password must be provided together")
         if self.smtp_user is not None and self.smtp_encryption == "none":
             self.error("Refusing to send credentials over an unencrypted "

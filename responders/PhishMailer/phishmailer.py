@@ -33,6 +33,20 @@ _SUBJECT_FIELD_RE = re.compile(r'subject\s*:\s*"([^"]*)"')
 _MAILTO_FIELD_RE = re.compile(r'mailto\s*:\s*(\S+)')
 
 
+def normalize_smtp_credentials(
+    user: Optional[str],
+    password: Optional[str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Normalize optional SMTP credentials and require a complete pair."""
+    normalized_user = user.strip() if user is not None and user.strip() else None
+    normalized_password = password.strip() if password is not None and password.strip() else None
+
+    if (normalized_user is None) != (normalized_password is None):
+        raise ValueError("smtp_user and smtp_password must be provided together")
+
+    return normalized_user, normalized_password
+
+
 class NoRecipientFoundError(Exception):
     pass
 
@@ -195,8 +209,13 @@ class PhishMailer(Responder):
         if self.smtp_encryption not in TLS_MODES:
             self.error(f"Invalid smtp_encryption {self.smtp_encryption!r}; "
                        f"must be one of: {', '.join(TLS_MODES)}")
-        if ((self.smtp_user is None) is not (self.smtp_password is None)) or (self.smtp_user.strip() is not self.smtp_password.strip()):
-            self.error("smtp_user and smtp_password must be provided together")
+        try:
+            self.smtp_user, self.smtp_password = normalize_smtp_credentials(
+                self.smtp_user,
+                self.smtp_password,
+            )
+        except ValueError as exc:
+            self.error(str(exc))
         if self.smtp_user is not None and self.smtp_encryption == "none":
             self.error("Refusing to send credentials over an unencrypted "
                        "connection; use smtp_encryption 'tls' or 'starttls'")

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+shopt -s nullglob
+
 # Adapted from TheHive-Project/Cortex-Analyzers
 # https://github.com/TheHive-Project/Cortex-Analyzers/blob/master/utils/docker/build.sh
 # Licensed under AGPL-3.0
 #
-# Modified by dead-plant, 2026-07-17: Changed default DOCKER_REPOSITORY variable in line 30
+# Modified by dead-plant, 2026-07-17
 
 ###
 # This program assumes your analyzers and responders folder looks like: 
@@ -27,7 +30,7 @@
 ###
 
 # Set your docker repository name
-DOCKER_REPOSITORY=127.0.0.1:5000/thephish-ng-neurons
+DOCKER_REPOSITORY=local-thephish-ng-neurons
 
 build_image() {
       JSON=$1
@@ -58,6 +61,7 @@ EOF
 
 build_catalog() {
     DIR=$1
+    mkdir -p "$DIR"
     echo '[' > ${DIR}/${DIR}.json
 
 

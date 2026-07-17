@@ -6,7 +6,7 @@ This guide explains how to set up the analyzers and responders in this repositor
 
 - [Requirements](#requirements)
 - [Build your own](#build-your-own)
-  - [Create a local Docker registry](#create-a-local-docker-registry)
+  - [Clone the Git repository](#clone-the-git-repository)
   - [Build the container images and catalog](#build-the-container-images-and-catalog)
   - [Add the catalog to Cortex](#add-the-catalog-to-cortex)
 - [Deploy using the pre-built catalog](#deploy-using-the-pre-built-catalog)
@@ -16,26 +16,41 @@ This guide explains how to set up the analyzers and responders in this repositor
   - [Catalog URLs](#catalog-urls)
   - [Restart Cortex](#restart-cortex)
   - [Enable and configure the Neurons](#enable-and-configure-the-neurons)
+- [Update outdated images](#update-outdated-images)
 
 ## Requirements
 
 - A working [Docker installation](https://docs.docker.com/engine/install/)
 - A working Cortex installation, either [installed natively](https://docs.strangebee.com/cortex/installation-and-configuration/) or deployed using [Docker Compose](https://github.com/StrangeBeeCorp/docker/tree/main/prod1-cortex)
-- Basic knowledge of Linux, Docker and Cortex
+- Basic knowledge of Linux, Docker, and Cortex
+- Local build: `sudo`, `git`, `bash`, and `jq` packages installed
 
 ## Build your own
 
-Instead of using the pre-built version, you can build your own Docker images, store them in a local registry and configure Cortex with a local catalog.
+Instead of using the pre-built version, you can optionally build the Docker images yourself and configure Cortex with a local catalog.
 
-**Note:** Neurons deployed this way must be updated manually. Repeat the steps below for each Neuron you want to update. If you kept the Git repository, run `git pull` instead of cloning it again.
+**Note:** If you build the images yourself, you have to update them manually. If you want to update, you should take a look at [Update outdated images](#update-outdated-images)
 
-### Create a local Docker registry
+### Clone the Git repository
 
-Documentation not finished yet...
+First, create a user-owned directory under `/opt` and clone the Git repository:
+
+```bash
+sudo install -d -o "$USER" -g "$(id -gn)" /opt/thephish-ng-neurons
+cd /opt/thephish-ng-neurons
+
+git clone https://github.com/dead-plant/ThePhish-NG-Neurons.git .
+```
 
 ### Build the container images and catalog
 
-Documentation not finished yet...
+Then you can run the build script.
+
+```bash
+bash ./utils/build.sh
+```
+
+The script should automatically create the Docker images and the catalog files at `./analyzers/analyzers.json` and `./responders/responders.json`.
 
 ### Add the catalog to Cortex
 
@@ -53,13 +68,13 @@ For a native Cortex installation, the configuration file is normally located at:
 /etc/cortex/application.conf
 ```
 
-For a Docker Compose deployment, the location on the host depends on the Cortex service's volume mapping. Find the volume whose destination inside the container is `/etc/cortex/application.conf`. For example:
+For a Docker Compose deployment, the location on the host depends on the Cortex service's volume mapping. Find the volume whose destination inside the container is `/etc/cortex`. For example:
 
 ```yaml
 services:
   cortex:
     volumes:
-      - ./cortex/config/application.conf:/etc/cortex/application.conf
+      - ./cortex/config:/etc/cortex:ro
 ```
 
 In this example, the configuration file is located at `cortex/config/application.conf`, relative to the Compose directory. The referenced StrangeBee Docker Compose deployment uses this layout, but other deployments may use a different host path.
@@ -160,3 +175,21 @@ sudo systemctl status cortex --no-pager
 ### Enable and configure the Neurons
 
 The added Neurons should now appear in the Cortex interface. Enable and configure the Neurons you want to use, referring to their individual documentation in the repository's [list of Neurons](../README.md#list-of-neurons).
+
+## Update outdated images
+
+First you have to `cd` into the git repository. If you used the default path from [Clone the Git repository](#clone-the-git-repository) this command should work:
+
+```bash
+cd /opt/thephish-ng-neurons
+```
+
+Once you have located the repository, run the following commands. The build script should automatically create the new images and update the catalog files.
+
+```bash
+git add -A
+git commit -m "local changes before update"
+git pull
+
+bash ./utils/build.sh
+```

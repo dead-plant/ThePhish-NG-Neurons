@@ -11,21 +11,21 @@
   "configurationItems": [
     {
       "name": "from_addr",
-      "description": "Address from which the mails are sent",
+      "description": "Valid sender email address used in the `From` header.",
       "type": "string",
       "multi": false,
       "required": true
     },
     {
       "name": "smtp_host",
-      "description": "SMTP server address",
+      "description": "Hostname or IP address of the SMTP server.",
       "type": "string",
       "multi": false,
       "required": true
     },
     {
       "name": "smtp_port",
-      "description": "SMTP server port",
+      "description": "Port used to connect to the SMTP server.",
       "type": "number",
       "multi": false,
       "required": true,
@@ -33,7 +33,7 @@
     },
     {
       "name": "smtp_encryption",
-      "description": "TLS Mode. Must be one of these: none, starttls, tls",
+      "description": "Connection mode: `tls` for implicit TLS, `starttls` for starttls, or `none` for an unencrypted connection.",
       "type": "string",
       "multi": false,
       "required": true,
@@ -41,7 +41,7 @@
     },
     {
       "name": "smtp_verify",
-      "description": "Verify TLS certificates",
+      "description": "Whether to verify the SMTP server's TLS certificate.",
       "type": "boolean",
       "multi": false,
       "required": true,
@@ -49,14 +49,14 @@
     },
     {
       "name": "smtp_user",
-      "description": "SMTP server user",
+      "description": "SMTP authentication username. Must be provided together with `smtp_password`.",
       "type": "string",
       "multi": false,
       "required": false
     },
     {
       "name": "smtp_password",
-      "description": "SMTP server password",
+      "description": "SMTP authentication password. Must be provided together with `smtp_user`.",
       "type": "string",
       "multi": false,
       "required": false

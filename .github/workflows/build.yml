@@ -290,9 +290,9 @@ jobs:
           esac
 
       - name: Discord notification
-        # Notify on every failure, and on tag pushes also on success
-        # (release confirmation). Tune to taste.
-        if: steps.status.outputs.overall != 'success' || startsWith(github.ref, 'refs/tags/')
+        # Notify on every failure, and also on successful tag pushes,
+        # monthly scheduled rebuilds, and manual builds.
+        if: steps.status.outputs.overall != 'success' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           OVERALL: ${{ steps.status.outputs.overall }}

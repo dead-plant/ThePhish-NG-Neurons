@@ -66,7 +66,7 @@ services:
       - /opt/thephish-ng-neurons/responders/responders.json:/opt/thephish-ng-neurons/responders/responders.json:ro
 ```
 
-If you cloned the repository somewhere else, replace the path before the first colon with that host path. The second path is the location that Cortex can access; use it when configuring the catalog URLs:
+If you cloned the repository somewhere else, replace the path before the first colon with that host path. The second path is the location that Cortex can access. Use it when configuring the catalog URLs:
 
 ```text
 /opt/thephish-ng-neurons/analyzers/analyzers.json

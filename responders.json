@@ -1,0 +1,70 @@
+[
+  {
+    "name": "PhishMailer",
+    "version": "1.0",
+    "author": "dead-plant",
+    "url": "https://github.com/dead-plant/ThePhish-NG-Neurons",
+    "license": "AGPL-V3",
+    "description": "Send an email containing the description of a TheHive case or case_task.",
+    "dataTypeList": [
+      "thehive:case",
+      "thehive:case_task"
+    ],
+    "baseConfig": "PhishMailer",
+    "configurationItems": [
+      {
+        "name": "from_addr",
+        "description": "Valid sender email address used in the `From` header.",
+        "type": "string",
+        "multi": false,
+        "required": true
+      },
+      {
+        "name": "smtp_host",
+        "description": "Hostname or IP address of the SMTP server.",
+        "type": "string",
+        "multi": false,
+        "required": true
+      },
+      {
+        "name": "smtp_port",
+        "description": "Port used to connect to the SMTP server.",
+        "type": "number",
+        "multi": false,
+        "required": true,
+        "defaultValue": 465
+      },
+      {
+        "name": "smtp_encryption",
+        "description": "Connection mode: `tls` for implicit TLS, `starttls` for starttls, or `none` for an unencrypted connection.",
+        "type": "string",
+        "multi": false,
+        "required": true,
+        "defaultValue": "tls"
+      },
+      {
+        "name": "smtp_verify",
+        "description": "Whether to verify the SMTP server's TLS certificate.",
+        "type": "boolean",
+        "multi": false,
+        "required": true,
+        "defaultValue": true
+      },
+      {
+        "name": "smtp_user",
+        "description": "SMTP authentication username. Must be provided together with `smtp_password`.",
+        "type": "string",
+        "multi": false,
+        "required": false
+      },
+      {
+        "name": "smtp_password",
+        "description": "SMTP authentication password. Must be provided together with `smtp_user`.",
+        "type": "string",
+        "multi": false,
+        "required": false
+      }
+    ],
+    "dockerImage": "ghcr.io/dead-plant/phishmailer:1"
+  }
+]

@@ -34,28 +34,27 @@ DOCKER_REPOSITORY=local-thephish-ng-neurons
 
 build_image() {
       JSON=$1
+      TAG=`cat ${JSON} | jq -r '( "'"$DOCKER_REPOSITORY"'" + "/" + (.name | ascii_downcase) + ":" + (.version))'`
+    WORKER_NAME=`cat ${JSON} | jq -r '(.version)'`
+    COMMAND_JSON=`cat ${JSON} | jq -c '(.command)'`
+    DIRNAME=`dirname ${JSON}`
+      WORKER_NAME=`basename ${DIRNAME}`
     cat << EOF > /tmp/default_dockerfile
 FROM python:3-alpine
 ARG workername
-ARG command
 WORKDIR /worker
 COPY requirements.txt \$workername/
 RUN test ! -e \$workername/requirements.txt || pip install --no-cache-dir -r \$workername/requirements.txt
 COPY . \$workername/
-ENTRYPOINT ["python","\$command"]
+ENTRYPOINT ["python",${COMMAND_JSON}]
 EOF
 
     DEFAULT_DOCKERFILE=/tmp/default_dockerfile
-      TAG=`cat ${JSON} | jq -r '( "'"$DOCKER_REPOSITORY"'" + "/" + (.name | ascii_downcase) + ":" + (.version))'`
-    WORKER_NAME=`cat ${JSON} | jq -r '(.version)'`  
-    COMMAND=`cat ${JSON} | jq -r '(.command)'`
-    DIRNAME=`dirname ${JSON}`
-      WORKER_NAME=`basename ${DIRNAME}`
     if test -f ${DIRNAME}/Dockerfile
     then
           docker build -t ${TAG} `dirname ${JSON}`
     else
-          docker build --build-arg workername=${WORKER_NAME} --build-arg command=${COMMAND} -f ${DEFAULT_DOCKERFILE} -t ${TAG} `dirname ${JSON}`
+          docker build --build-arg workername=${WORKER_NAME} -f ${DEFAULT_DOCKERFILE} -t ${TAG} `dirname ${JSON}`
     fi
 }
 

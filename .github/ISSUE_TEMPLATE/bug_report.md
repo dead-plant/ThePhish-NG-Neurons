@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Create a report to help ThePhish-NG-Neurons improve.
-title: "[BUG]"
+title: ""
 assignees: ''
 
 ---
